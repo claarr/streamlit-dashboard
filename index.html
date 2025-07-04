@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Dashboard</title>
+  <style>
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 30px;
+    }
+    iframe {
+      border: none;
+      width: 100%;
+      height: 800px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Looker Studio iframe -->
+  <iframe 
+    src="https://lookerstudio.google.com/embed/reporting/aef21fc9-fae2-4e7b-b00f-351a129a2727/page/p_sf5h1uwiod" 
+    allowfullscreen 
+    sandbox="allow-storage-access-by-user-activation allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox">
+  </iframe>
+
+  <!-- Streamlit iframe -->
+  <iframe 
+    src="http://localhost:8501" 
+    sandbox="allow-same-origin allow-scripts allow-forms" 
+    allowfullscreen>
+  </iframe>
+
+</body>
+</html>
