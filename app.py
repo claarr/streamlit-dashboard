@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from fpdf import FPDF
 import io
-from textwrap import wrap
+import textwrap
 
 
 # URL Google Sheet yang dipublikasikan sebagai CSV
@@ -38,75 +38,99 @@ with col3:
     st.download_button("📥 CSV", data=csv_buffer.getvalue(), file_name="data_terfilter.csv", mime="text/csv")
 
 # Download PDF
-def create_pdf(df):
+def create_pdf_simple(df):
     pdf = FPDF(orientation='L', unit='mm', format='A4')
-    pdf.set_auto_page_break(auto=True, margin=10)
 
-    max_cols_per_page = 10  # karena Provinsi + 9 = 10 kolom
-    max_col_width = 50
+    pdf.set_font("Arial", size=6)
+    page_width = 270  # Lebar halaman A4 landscape
+    max_col_width = 100
     min_col_width = 20
-    page_width = 270
 
-    # Pastikan kolom 'Provinsi' ada
-    if 'Provinsi' not in df.columns:
-        raise ValueError("Kolom 'Provinsi' tidak ditemukan di dataframe.")
+    # Hitung lebar kolom
+    col_widths = []
+    for col in df.columns:
+        if col == 'Provinsi':
+            max_data_width = df[col].astype(str).map(lambda val: pdf.get_string_width(val)).max()
+            width = max(max_data_width, min_col_width) + 6
+        else:
+            header_width = pdf.get_string_width(str(col))
+            data_width = df[col].astype(str).map(lambda val: pdf.get_string_width(val)).max()
+            width = max(header_width, data_width, min_col_width) + 6
+        width = min(width, max_col_width)
+        col_widths.append(width)
 
-    # Kolom selain Provinsi
-    other_cols = [col for col in df.columns if col != 'Provinsi']
+    provinsi_idx = df.columns.get_loc('Provinsi')
 
-    for start in range(0, len(other_cols), max_cols_per_page):
-        end = min(start + max_cols_per_page, len(other_cols))
-        current_cols = ['Provinsi'] + other_cols[start:end]  # tambahkan 'Provinsi' setiap halaman
-        df_slice = df[current_cols]
+    # Fungsi untuk membagi kolom ke dalam grup, selalu sertakan Provinsi di setiap grup
+    def split_columns(col_widths, max_width, fixed_idx):
+        splits = []
+        current = [fixed_idx]  # selalu mulai dengan Provinsi
+        total = col_widths[fixed_idx]
+        for i, w in enumerate(col_widths):
+            if i == fixed_idx:
+                continue
+            if total + w > max_width:
+                splits.append(current)
+                current = [fixed_idx, i]
+                total = col_widths[fixed_idx] + w
+            else:
+                current.append(i)
+                total += w
+        if current:
+            splits.append(current)
+        return splits
 
+    col_indices_groups = split_columns(col_widths, page_width, provinsi_idx)
+
+    for group in col_indices_groups:
         pdf.add_page()
-        pdf.set_font("Arial", 'B', 12)
-        pdf.cell(0, 10, "Laporan Data Terfilter", ln=True, align="C")
 
-        # Hitung lebar kolom
-        pdf.set_font("Arial", size=6)
-        col_widths = []
-        for col in df_slice.columns:
-            max_len = max(df_slice[col].astype(str).map(len).max(), len(str(col)))
-            width = pdf.get_string_width("W" * max_len) + 4
-            width = min(max_col_width, max(min_col_width, width))
-            col_widths.append(width)
+        # Judul
+        pdf.set_font("Arial", 'B', 14)
+        pdf.cell(0, 10, "Data Indikator Air Minum Layak & Sanitasi Layak", ln=True, align="C")
+        pdf.ln(5)
 
-        total_width = sum(col_widths)
-        scale = page_width / total_width if total_width > page_width else 1
-        col_widths = [w * scale for w in col_widths]
+        group_col_widths = [col_widths[i] for i in group]
+        row_height = 4
+        wrap_widths = [int(width // 2.5) for width in group_col_widths]
 
         # Header
         pdf.set_font("Arial", 'B', 7)
+        wrapped_headers = []
+        max_lines = 0
+        for i, col_idx in enumerate(group):
+            lines = textwrap.wrap(str(df.columns[col_idx]), width=wrap_widths[i])
+            wrapped_headers.append(lines)
+            max_lines = max(max_lines, len(lines))
+
         y_start = pdf.get_y()
         x_start = pdf.get_x()
 
-        # Bungkus dan simpan header
-        wrapped_headers = []
-        row_height = 4
-        max_lines = 0
-        for col in df_slice.columns:
-            wrapped = wrap(str(col), width=20)
-            max_lines = max(max_lines, len(wrapped))
-            wrapped_headers.append(wrapped)
+        for line_num in range(max_lines):
+            for i, lines in enumerate(wrapped_headers):
+                num_lines = len(lines)
+                padding_top = (max_lines - num_lines) // 2
+                if line_num < padding_top or line_num >= padding_top + num_lines:
+                    text = ""
+                else:
+                    text = lines[line_num - padding_top]
+                pdf.cell(group_col_widths[i], row_height, text, border=0, align='C')
+            pdf.ln()
 
-        # Tulis header yang sejajar
-        for i, wrapped in enumerate(wrapped_headers):
-            x = x_start + sum(col_widths[:i])
-            y = y_start
-            pdf.set_xy(x, y)
-            for line in wrapped:
-                pdf.cell(col_widths[i], row_height, line, border=0, align='C')
-                y += row_height
-            pdf.rect(x, y_start, col_widths[i], row_height * max_lines)
+        # Border header
+        pdf.set_y(y_start)
+        for i, width in enumerate(group_col_widths):
+            x = x_start + sum(group_col_widths[:i])
+            pdf.rect(x, y_start, width, row_height * max_lines)
 
         pdf.set_y(y_start + row_height * max_lines)
 
-        # Isi baris
+        # Isi data
         pdf.set_font("Arial", '', 6)
-        for _, row in df_slice.iterrows():
-            for i, item in enumerate(row):
-                pdf.cell(col_widths[i], 6, str(item), border=1)
+        for _, row in df.iterrows():
+            for i in group:
+                text = str(row[i])[:50]
+                pdf.cell(col_widths[i], 6, text, border=1, align='C')
             pdf.ln()
 
     pdf_output = pdf.output(dest='S').encode('latin-1')
@@ -114,13 +138,14 @@ def create_pdf(df):
 
 
 with col4:
-    pdf_buffer = create_pdf(filtered_df)
+    pdf_buffer = create_pdf_simple(filtered_df)
     st.download_button(
         label="📄 PDF",
         data=pdf_buffer,
         file_name="data_terfilter.pdf",
         mime="application/pdf"
     )
+
 
 # Tampilkan tabel
 st.dataframe(filtered_df, use_container_width=True)
